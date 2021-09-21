@@ -162,17 +162,27 @@ class Statistics:
     
     @staticmethod
     def correlate_multidimensional(x, y, timedim=0):
-        """ 
-        Calculate Pearson correlation coefficient and p-value even on
-        multidimensional arrays. 
-        """
+        """ Calculate Pearson correlation coefficient and p-value even on
+            multidimensional arrays. """
 
         from scipy import special
-        import numpy as np
+
+        # find NaN elements
+        mask = np.logical_or(np.isnan(x), np.isnan(y))
+        # mask pixel-wise where at least one element in time
+        # series is invalid
+        pixel_any_nan_mask = np.any(mask, axis=timedim)
+        # replace invalid values with a FillValue to run correlation
+        # Fill value should not be constant as otherwise the calculation
+        # of r divides by zero (std=0). Thus we replace invalid values
+        # with random values and mask those pixels afterwards.
+        rand = np.random.random(x.shape)
+        x[mask] = rand[mask]
+        y[mask] = rand[mask]
 
         x = x.astype(np.float64)
         y = y.astype(np.float64)
-        
+
         # calculate covariance
         Xm = x - np.mean(x, axis=timedim)
         Ym = y - np.mean(y, axis=timedim)
@@ -194,6 +204,10 @@ class Statistics:
         # to avoid a TypeError raised by btdtr when r is higher precision.)
         ab = N/2 - 1
         pval = 2*special.btdtr(ab, ab, 0.5*(1 - np.abs(np.float64(r))))
+
+        # mask pixels which's time series has at least 1 invalid element
+        r = np.where(pixel_any_nan_mask, np.nan, r)
+        pval = np.where(pixel_any_nan_mask, np.nan, pval)
 
         return r, pval
 
