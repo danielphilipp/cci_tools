@@ -162,8 +162,8 @@ class Statistics:
     
     @staticmethod
     def linregress_multidimensional(x, y, timedim=0):
-        """ Calculate linear trend and intercept even on
-            multidimensional arrays. """
+        """ Calculate linear slope, intercept, Pearson correlation coefficient 
+            and p-value even on multidimensional arrays. """
         from scipy import special
 
         # find NaN elements
@@ -198,7 +198,28 @@ class Statistics:
         slope = ssxym / ssxm
         intercept = np.mean(y, axis=timedim) - slope*np.mean(x, axis=timedim)
 
-        return slope, intercept
+        X_std = np.std(Xm, axis=timedim)
+        Y_std = np.std(Ym, axis=timedim)
+        r = ssxym / (X_std * Y_std)
+
+        # calculate corresponding p-value
+        #the p-value can be computed as p = 2*dist.cdf(-abs(r))
+        # where dist is the beta distribution on [-1, 1] with shape parameters
+        # a = b = n/2 - 1.  `special.btdtr` is the CDF for the beta distribution
+        # on [0, 1].  To use it, we make the transformation  x = (r + 1)/2; the
+        # shape parameters do not change.  Then -abs(r) used in `cdf(-abs(r))`
+        # becomes x = (-abs(r) + 1)/2 = 0.5*(1 - abs(r)).  (r is cast to float64
+        # to avoid a TypeError raised by btdtr when r is higher precision.)
+        ab = N/2 - 1
+        pval = 2*special.btdtr(ab, ab, 0.5*(1 - np.abs(np.float64(r))))
+
+        # mask pixels which's time series has at least 1 invalid element
+        slope = np.where(pixel_any_nan_mask, np.nan, slope)
+        intercept = np.where(pixel_any_nan_mask, np.nan, intercept)
+        r = np.where(pixel_any_nan_mask, np.nan, r)
+        pval = np.where(pixel_any_nan_mask, np.nan, pval)
+
+        return slope, intercept, r, pval
     
     @staticmethod
     def correlate_multidimensional(x, y, timedim=0):
