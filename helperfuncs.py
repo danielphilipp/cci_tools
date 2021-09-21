@@ -161,6 +161,46 @@ class Statistics:
         return r, p
     
     @staticmethod
+    def linregress_multidimensional(x, y, timedim=0):
+        """ Calculate linear trend and intercept even on
+            multidimensional arrays. """
+        from scipy import special
+
+        # find NaN elements
+        mask = np.logical_or(np.isnan(x), np.isnan(y))
+        # mask pixel-wise where at least one element in time
+        # series is invalid
+        pixel_any_nan_mask = np.any(mask, axis=timedim)
+        # replace invalid values with a FillValue to run correlation
+        # Fill value should not be constant as otherwise the calculation
+        # of r divides by zero (std=0). Thus we replace invalid values
+        # with random values and mask those pixels afterwards.
+        rand = np.random.random(x.shape)
+        x[mask] = rand[mask]
+        y[mask] = rand[mask]
+
+        x = x.astype(np.float64)
+        y = y.astype(np.float64)
+
+        Xm = x - np.mean(x, axis=timedim)
+        Ym = y - np.mean(y, axis=timedim)
+
+        N = Xm.shape[timedim]
+
+        # Average sums of square differences from the mean
+        # mean( (x-mean(x))^2 )
+        ssxm = (Xm * Xm).sum(axis=timedim) / N
+        # mean( (y-mean(y))^2 )
+        ssym = (Ym * Ym).sum(axis=timedim) / N
+        # mean( (x-mean(x)) * (y-mean(y)) )
+        ssxym = (Xm * Ym).sum(axis=timedim) / N
+
+        slope = ssxym / ssxm
+        intercept = np.mean(y, axis=timedim) - slope*np.mean(x, axis=timedim)
+
+        return slope, intercept
+    
+    @staticmethod
     def correlate_multidimensional(x, y, timedim=0):
         """ Calculate Pearson correlation coefficient and p-value even on
             multidimensional arrays. """
