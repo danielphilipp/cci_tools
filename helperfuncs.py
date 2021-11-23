@@ -159,6 +159,118 @@ class Statistics:
         """
         r, p = stats.pearsonr(x, y)
         return r, p
+    
+    @staticmethod
+    def linregress_multidimensional(x, y, timedim=0):
+        """ Calculate linear slope, intercept, Pearson correlation coefficient 
+            and p-value even on multidimensional arrays. """
+        from scipy import special
+
+        # find NaN elements
+        mask = np.logical_or(np.isnan(x), np.isnan(y))
+        # mask pixel-wise where at least one element in time
+        # series is invalid
+        pixel_any_nan_mask = np.any(mask, axis=timedim)
+        # replace invalid values with a FillValue to run correlation
+        # Fill value should not be constant as otherwise the calculation
+        # of r divides by zero (std=0). Thus we replace invalid values
+        # with random values and mask those pixels afterwards.
+        rand = np.random.random(x.shape)
+        x[mask] = rand[mask]
+        y[mask] = rand[mask]
+
+        x = x.astype(np.float64)
+        y = y.astype(np.float64)
+
+        Xm = x - np.mean(x, axis=timedim)
+        Ym = y - np.mean(y, axis=timedim)
+
+        N = Xm.shape[timedim]
+
+        # Average sums of square differences from the mean
+        # mean( (x-mean(x))^2 )
+        ssxm = (Xm * Xm).sum(axis=timedim) / N
+        # mean( (y-mean(y))^2 )
+        ssym = (Ym * Ym).sum(axis=timedim) / N
+        # mean( (x-mean(x)) * (y-mean(y)) )
+        ssxym = (Xm * Ym).sum(axis=timedim) / N
+
+        slope = ssxym / ssxm
+        intercept = np.mean(y, axis=timedim) - slope*np.mean(x, axis=timedim)
+
+        X_std = np.std(Xm, axis=timedim)
+        Y_std = np.std(Ym, axis=timedim)
+        r = ssxym / (X_std * Y_std)
+
+        # calculate corresponding p-value
+        #the p-value can be computed as p = 2*dist.cdf(-abs(r))
+        # where dist is the beta distribution on [-1, 1] with shape parameters
+        # a = b = n/2 - 1.  `special.btdtr` is the CDF for the beta distribution
+        # on [0, 1].  To use it, we make the transformation  x = (r + 1)/2; the
+        # shape parameters do not change.  Then -abs(r) used in `cdf(-abs(r))`
+        # becomes x = (-abs(r) + 1)/2 = 0.5*(1 - abs(r)).  (r is cast to float64
+        # to avoid a TypeError raised by btdtr when r is higher precision.)
+        ab = N/2 - 1
+        pval = 2*special.btdtr(ab, ab, 0.5*(1 - np.abs(np.float64(r))))
+
+        # mask pixels which's time series has at least 1 invalid element
+        slope = np.where(pixel_any_nan_mask, np.nan, slope)
+        intercept = np.where(pixel_any_nan_mask, np.nan, intercept)
+        r = np.where(pixel_any_nan_mask, np.nan, r)
+        pval = np.where(pixel_any_nan_mask, np.nan, pval)
+
+        return slope, intercept, r, pval
+    
+    @staticmethod
+    def correlate_multidimensional(x, y, timedim=0):
+        """ Calculate Pearson correlation coefficient and p-value even on
+            multidimensional arrays. """
+
+        from scipy import special
+
+        # find NaN elements
+        mask = np.logical_or(np.isnan(x), np.isnan(y))
+        # mask pixel-wise where at least one element in time
+        # series is invalid
+        pixel_any_nan_mask = np.any(mask, axis=timedim)
+        # replace invalid values with a FillValue to run correlation
+        # Fill value should not be constant as otherwise the calculation
+        # of r divides by zero (std=0). Thus we replace invalid values
+        # with random values and mask those pixels afterwards.
+        rand = np.random.random(x.shape)
+        x[mask] = rand[mask]
+        y[mask] = rand[mask]
+
+        x = x.astype(np.float64)
+        y = y.astype(np.float64)
+
+        # calculate covariance
+        Xm = x - np.mean(x, axis=timedim)
+        Ym = y - np.mean(y, axis=timedim)
+        N = Xm.shape[timedim]
+        cov = (Xm * Ym).sum(axis=timedim) / N
+
+        # calculate Pearson correlation coefficient
+        X_std = np.std(Xm, axis=timedim)
+        Y_std = np.std(Ym, axis=timedim)
+        r = cov / (X_std *  Y_std)
+
+        # calculate corresponding p-value
+        #the p-value can be computed as p = 2*dist.cdf(-abs(r))
+        # where dist is the beta distribution on [-1, 1] with shape parameters
+        # a = b = n/2 - 1.  `special.btdtr` is the CDF for the beta distribution
+        # on [0, 1].  To use it, we make the transformation  x = (r + 1)/2; the
+        # shape parameters do not change.  Then -abs(r) used in `cdf(-abs(r))`
+        # becomes x = (-abs(r) + 1)/2 = 0.5*(1 - abs(r)).  (r is cast to float64
+        # to avoid a TypeError raised by btdtr when r is higher precision.)
+        ab = N/2 - 1
+        pval = 2*special.btdtr(ab, ab, 0.5*(1 - np.abs(np.float64(r))))
+
+        # mask pixels which's time series has at least 1 invalid element
+        r = np.where(pixel_any_nan_mask, np.nan, r)
+        pval = np.where(pixel_any_nan_mask, np.nan, pval)
+
+        return r, pval
 
     @staticmethod
     def regression(x, y):
