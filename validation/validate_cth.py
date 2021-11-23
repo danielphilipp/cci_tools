@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
 import argparse
+from atrain_plot.get_imager import get_imager_cph
 
 
 ICE_TEMPERATURE_LIMIT = -20
@@ -11,29 +12,29 @@ CALIPSO_QUAL_VALUES = dict(none=0,
 
 def bias(x_img, x_cal):
     assert x_img.shape[0] == x_cal.shape[0]
-    return np.mean(x_img - x_cal)
+    return np.nanmean(x_img - x_cal)
 
 
 def mae(x_img, x_cal):
     assert x_img.shape[0] == x_cal.shape[0]
-    return np.mean(np.abs(x_cal - x_img))
+    return np.nanmean(np.abs(x_cal - x_img))
 
 
 def rmse(x_img, x_cal):
     assert x_img.shape[0] == x_cal.shape[0]
-    return np.sqrt(np.mean((x_cal - x_img) * (x_cal - x_img)))
+    return np.sqrt(np.nanmean((x_cal - x_img) * (x_cal - x_img)))
 
 
 def std(x_img, x_cal):
     assert x_img.shape[0] == x_cal.shape[0]
-    mu = np.mean(x_cal)
-    return np.sqrt(np.mean((x_img - mu) * (x_img - mu)))
+    mu = np.nanmean(x_cal)
+    return np.sqrt(np.nanmean((x_img - mu) * (x_img - mu)))
 
 
 def std2(x_img, x_cal):
     assert x_img.shape[0] == x_cal.shape[0]
-    mu = np.mean(x_img)
-    return np.sqrt(np.mean((x_cal - mu) * (x_cal - mu)))
+    mu = np.nanmean(x_img)
+    return np.sqrt(np.nanmean((x_cal - mu) * (x_cal - mu)))
 
 def get_imager_cth(ds):
     """ Get imager CTH. """
@@ -56,20 +57,8 @@ def get_caliop_cth(ds):
     return cth
 
 
-def get_imager_cph(ds):
-    """ Get imager CPH. """
-    phase = np.array(ds['cpp_phase'])
-    phase = np.where(phase < 0, np.nan, phase)
-    phase = np.where(phase > 10, np.nan, phase)
-    phase = np.where(phase == 0, np.nan, phase)
-    phase = np.where(phase == 1, 0, phase)
-    phase = np.where(phase == 2, 1, phase)
-    return phase
-
-
 def _get_cflag(flag, idx1, idx2):
     """ Get cloud flag value from binary flag. """
-
     flag_int = int(flag)
     flag_len = flag_int.bit_length()
     flag_bin = _intToBin(flag)
@@ -93,140 +82,90 @@ def _intToBin(x):
     return str(bin(x)[2:])
 
 
-def setup_results_dict(n_limits):
-    vals_all = dict()
-    vals_ice = dict()
-    vals_liq = dict()
-    for i in range(n_limits):
-        lname = 'LIM' + str(i + 1)
-        vals_all[lname] = {'IMG': list(), 'CAL': list()}
-        vals_ice[lname] = {'IMG': list(), 'CAL': list()}
-        vals_liq[lname] = {'IMG': list(), 'CAL': list()}
-    return vals_all, vals_ice, vals_liq
-
-
-def list_to_numpy(vals_all, vals_ice, vals_liq, n_limits):
-    # convert lists to numpy arrays
-    for k in range(n_limits):
-        lname = 'LIM' + str(k+1)
-        vals_all[lname]['IMG'] = np.array(vals_all[lname]['IMG'])
-        vals_all[lname]['CAL'] = np.array(vals_all[lname]['CAL'])
-
-        vals_ice[lname]['IMG'] = np.array(vals_ice[lname]['IMG'])
-        vals_ice[lname]['CAL'] = np.array(vals_ice[lname]['CAL'])
-
-        vals_liq[lname]['IMG'] = np.array(vals_liq[lname]['IMG'])
-        vals_liq[lname]['CAL'] = np.array(vals_liq[lname]['CAL'])
-
-    return vals_all, vals_ice, vals_liq
-
-
 def run_validation(matchup_file, cot_limits, satz_lim):
+    if matchup_file is not None:
+        # read data
+        file = h5py.File(matchup_file, 'r')
+        caliop_cth = get_caliop_cth(file['calipso'])
+        imager_cth = get_imager_cth(file['cci'])
+        imager_cma = file['cci']['cloudmask'][:]
+        calipso_cfc = file['calipso']['cloud_fraction'][:]
+        imager_satz = file['cci']['satz'][:]
+        imager_cph = get_imager_cph(file['cci'])
+        laser_energy = file['calipso']['minimum_laser_energy_532'][:]
 
-    # read data
-    file = h5py.File(matchup_file, 'r')
-    caliop_cth = get_caliop_cth(file['calipso'])
-    imager_cth = get_imager_cth(file['cci'])
-    imager_cma = file['cci']['cloudmask'][:]
-    calipso_cfc = file['calipso']['cloud_fraction'][:]
-    imager_satz = file['cci']['satz'][:]
-    laser_energy = file['calipso']['minimum_laser_energy_532'][:]
+        from CythonExtension import parse_cal_profiles as pcp
+        results = pcp.parse_profile_cth(file['calipso']['feature_classification_flags'][:],
+                                        laser_energy.astype(np.float32),
+                                        np.array(cot_limits, dtype=np.float32),
+                                        file['calipso']['feature_optical_depth_532'][:].astype(np.float32),
+                                        caliop_cth.astype(np.float32),
+                                        imager_satz.astype(np.float32),
+                                        calipso_cfc.astype(np.float32),
+                                        imager_cma.astype(np.float32),
+                                        imager_cth.astype(np.float32),
+                                        imager_cph.astype(np.float32),
+                                        satz_lim)
 
-    # setup variables
-    n_profiles = imager_cth.shape[0]
-    n_levels = caliop_cth.shape[1]
-    n_limits = len(cot_limits)
+        cth_cal_all, cth_cal_ice, cth_cal_wat, cth_img_all, cth_img_ice, cth_img_wat = results
+        cth_cal_all = np.where(cth_cal_all < 0, np.nan, cth_cal_all)
+        cth_cal_ice = np.where(cth_cal_ice < 0, np.nan, cth_cal_ice)
+        cth_cal_wat = np.where(cth_cal_wat < 0, np.nan, cth_cal_wat)
+        cth_img_all = np.where(cth_img_all < 0, np.nan, cth_img_all)
+        cth_img_ice = np.where(cth_img_ice < 0, np.nan, cth_img_ice)
+        cth_img_wat = np.where(cth_img_wat < 0, np.nan, cth_img_wat)
 
-    # setup results dictionaries
-    vals_all, vals_ice, vals_liq = setup_results_dict(n_limits)
+        vals_all = {}
+        vals_liq = {}
+        vals_ice = {}
 
-    # iterate over profiles
-    for idx in range(n_profiles):
-        if laser_energy[idx] > 0.08:
-            if imager_satz[idx] < satz_lim:
-                # if imager has cloud
-                if ~np.isnan(imager_cth[idx]) and imager_cma[idx] > 0.5 and calipso_cfc[idx] > 0.5:
-                    # iterate over COT limits
-                    for lim in range(n_limits):
-                        cot_sum = 0
-                        lname = 'LIM' + str(lim+1)
-                        # iterate over vertical levels
-                        for lev in range(n_levels):
-                            cal_fflag = file['calipso']['feature_classification_flags'][idx, lev]
-                            if cal_fflag != 1:
-                                cflag = _get_cflag(cal_fflag, 3, 0)
-                                phase = _get_cflag(cal_fflag, 7, 5)
-                                phase_qual = _get_cflag(cal_fflag, 9, 7)
-                            else:
-                                cflag = -999
-                                phase = -999
-                                phase_qual = -999
+        res = '\nSATZ_LIM: {:.1f}\n'.format(satz_lim)
 
-                            # if cloud
-                            if cflag == 2:
-                                #if phase == 0:
-                                    #break
-                                    #phase = get_phase_from_temperature(caliop_mlt[idx, lev])
+        # calculate measures and print results
+        for cnt, l in enumerate(cot_limits):
+            n = 'COT > {}'.format(l)
+            nn = 'LIM' + str(cnt+1)
 
-                                cot_sum += file['calipso']['feature_optical_depth_532'][idx, lev]
+            vals_all[nn] = {'IMG': cth_img_all[cnt, :],
+                            'CAL': cth_cal_all[cnt, :]}
 
-                                # if integrated COT exceeds limit
-                                if cot_sum >= cot_limits[lim]:
-                                    cal_cth = caliop_cth[idx, lev]
-                                    vals_all[lname]['IMG'].append(imager_cth[idx])
-                                    vals_all[lname]['CAL'].append(cal_cth)
+            vals_ice[nn] = {'IMG': cth_img_ice[cnt, :],
+                            'CAL': cth_cal_ice[cnt, :]}
 
+            vals_liq[nn] = {'IMG': cth_img_wat[cnt, :],
+                            'CAL': cth_cal_wat[cnt, :]}
 
-                                    if phase_qual >= CALIPSO_QUAL_VALUES['medium']:
-                                        # if ice phase
-                                        if phase == 1 or phase == 3:
-                                            vals_ice[lname]['IMG'].append(imager_cth[idx])
-                                            vals_ice[lname]['CAL'].append(cal_cth)
-                                        # if liquid phase
-                                        elif phase == 2:
-                                            vals_liq[lname]['IMG'].append(imager_cth[idx])
-                                            vals_liq[lname]['CAL'].append(cal_cth)
-                                    break
+            res += '\n------------ COT = {:.2f}------------\n'.format(l)
+            res += '    BIAS\n'
+            res += '        ALL {:.3f}\n'.format(bias(vals_all[nn]['IMG'], vals_all[nn]['CAL'])/1000)
+            res += '        LIQ {:.3f}\n'.format(bias(vals_liq[nn]['IMG'], vals_liq[nn]['CAL'])/1000)
+            res += '        ICE {:.3f}\n'.format(bias(vals_ice[nn]['IMG'], vals_ice[nn]['CAL'])/1000)
 
-    vals_all, vals_ice, vals_liq = list_to_numpy(vals_all, vals_ice,
-                                                 vals_liq, n_limits)
+            res += '    MAE\n'
+            res += '        ALL {:.3f}\n'.format(mae(vals_all[nn]['IMG'], vals_all[nn]['CAL'])/1000)
+            res += '        LIQ {:.3f}\n'.format(mae(vals_liq[nn]['IMG'], vals_liq[nn]['CAL'])/1000)
+            res += '        ICE {:.3f}\n'.format(mae(vals_ice[nn]['IMG'], vals_ice[nn]['CAL'])/1000)
 
-    res = '\nSATZ_LIM: {:.1f}\n'.format(satz_lim)
+            res += '    RMSE\n'
+            res += '        ALL {:.3f}\n'.format(rmse(vals_all[nn]['IMG'], vals_all[nn]['CAL'])/1000)
+            res += '        LIQ {:.3f}\n'.format(rmse(vals_liq[nn]['IMG'], vals_liq[nn]['CAL'])/1000)
+            res += '        ICE {:.3f}\n'.format(rmse(vals_ice[nn]['IMG'], vals_ice[nn]['CAL'])/1000)
 
-    # calculate measures and print results
-    for cnt, l in enumerate(cot_limits):
-        n = 'COT > {}'.format(l)
-        nn = 'LIM' + str(cnt+1)
+            res += '    STD (img - mean(cal))\n'
+            res += '        ALL {:.3f}\n'.format(std(vals_all[nn]['IMG'], vals_all[nn]['CAL'])/1000)
+            res += '        LIQ {:.3f}\n'.format(std(vals_liq[nn]['IMG'], vals_liq[nn]['CAL'])/1000)
+            res += '        ICE {:.3f}\n'.format(std(vals_ice[nn]['IMG'], vals_ice[nn]['CAL'])/1000)
 
-        res += '\n------------ COT = {:.2f}------------\n'.format(l)
-        res += '    BIAS\n'
-        res += '        ALL {:.3f}\n'.format(bias(vals_all[nn]['IMG'], vals_all[nn]['CAL'])/1000)
-        res += '        LIQ {:.3f}\n'.format(bias(vals_liq[nn]['IMG'], vals_liq[nn]['CAL'])/1000)
-        res += '        ICE {:.3f}\n'.format(bias(vals_ice[nn]['IMG'], vals_ice[nn]['CAL'])/1000)
+            res += '    STD2 TEST (cal - mean(img)\n'
+            res += '        ALL {:.3f}\n'.format(std2(vals_all[nn]['IMG'], vals_all[nn]['CAL'])/1000)
+            res += '        LIQ {:.3f}\n'.format(std2(vals_liq[nn]['IMG'], vals_liq[nn]['CAL'])/1000)
+            res += '        ICE {:.3f}\n'.format(std2(vals_ice[nn]['IMG'], vals_ice[nn]['CAL'])/1000)
 
-        res += '    MAE\n'
-        res += '        ALL {:.3f}\n'.format(mae(vals_all[nn]['IMG'], vals_all[nn]['CAL'])/1000)
-        res += '        LIQ {:.3f}\n'.format(mae(vals_liq[nn]['IMG'], vals_liq[nn]['CAL'])/1000)
-        res += '        ICE {:.3f}\n'.format(mae(vals_ice[nn]['IMG'], vals_ice[nn]['CAL'])/1000)
+            res += '    N\n'
+            res += '        ALL {:.3f}\n'.format(vals_all[nn]['IMG'].shape[0])
+            res += '        LIQ {:.3f}\n'.format(vals_liq[nn]['IMG'].shape[0])
+            res += '        ICE {:.3f}\n'.format(vals_ice[nn]['IMG'].shape[0])
 
-        res += '    RMSE\n'
-        res += '        ALL {:.3f}\n'.format(rmse(vals_all[nn]['IMG'], vals_all[nn]['CAL'])/1000)
-        res += '        LIQ {:.3f}\n'.format(rmse(vals_liq[nn]['IMG'], vals_liq[nn]['CAL'])/1000)
-        res += '        ICE {:.3f}\n'.format(rmse(vals_ice[nn]['IMG'], vals_ice[nn]['CAL'])/1000)
-
-        res += '    STD (img - mean(cal))\n'
-        res += '        ALL {:.3f}\n'.format(std(vals_all[nn]['IMG'], vals_all[nn]['CAL'])/1000)
-        res += '        LIQ {:.3f}\n'.format(std(vals_liq[nn]['IMG'], vals_liq[nn]['CAL'])/1000)
-        res += '        ICE {:.3f}\n'.format(std(vals_ice[nn]['IMG'], vals_ice[nn]['CAL'])/1000)
-
-        res += '    STD2 TEST (cal - mean(img)\n'
-        res += '        ALL {:.3f}\n'.format(std2(vals_all[nn]['IMG'], vals_all[nn]['CAL'])/1000)
-        res += '        LIQ {:.3f}\n'.format(std2(vals_liq[nn]['IMG'], vals_liq[nn]['CAL'])/1000)
-        res += '        ICE {:.3f}\n'.format(std2(vals_ice[nn]['IMG'], vals_ice[nn]['CAL'])/1000)
-
-        res += '    N\n'
-        res += '        ALL {:.3f}\n'.format(vals_all[nn]['IMG'].shape[0])
-        res += '        LIQ {:.3f}\n'.format(vals_liq[nn]['IMG'].shape[0])
-        res += '        ICE {:.3f}\n'.format(vals_ice[nn]['IMG'].shape[0])
-
-    return res
+        return res
+    else:
+        return None
