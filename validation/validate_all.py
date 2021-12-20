@@ -6,8 +6,12 @@ import validate_cph as cph_val
 import validate_lwp as lwp_val
 import validate_iwp as iwp_val
 import validate_cer as cer_val
+import validate_ctp as ctp_val
+import validate_ctt as ctt_val
 from datetime import datetime as time
 from atrain_plot.atrain_plot import run as aprun
+
+rt_str = 'Runtime was {}\n'
 
 
 class Results:
@@ -19,6 +23,8 @@ class Results:
         self.lwp_results = 'Not validated!'
         self.iwp_results = 'Not validated!'
         self.cer_results = 'Not validated!'
+        self.ctt_results = 'Not validated!'
+        self.ctp_results = 'Not validated!'
 
 
 def _show_and_save_results(results, args):
@@ -37,6 +43,14 @@ def _show_and_save_results(results, args):
         '#############################################\n' + \
         results.cth_results + \
         '\n#############################################\n' + \
+        '############### CTP VALIDATION ##############\n' + \
+        '#############################################\n' + \
+        results.ctp_results + \
+        '\n#############################################\n' + \
+        '############### CTT VALIDATION ##############\n' + \
+        '#############################################\n' + \
+        results.ctt_results + \
+        '\n#############################################\n' + \
         '############### LWP VALIDATION ##############\n' + \
         '#############################################\n' + \
         results.lwp_results + \
@@ -50,13 +64,15 @@ def _show_and_save_results(results, args):
         results.cer_results + \
         '\n#############################################\n'
 
-    print(s)
+    if args.verbose:
+        print(s)
 
     if os.path.isfile(args.output_txt_file):
         os.remove(args.output_txt_file)
 
     with open(args.output_txt_file, 'w') as fh:
         fh.write(s)
+
 
 if __name__ == '__main__':
     # get command line arguments
@@ -67,6 +83,7 @@ if __name__ == '__main__':
     parser.add_argument('-cl', '--cot_limits', required=True, nargs='+')
     parser.add_argument('-sl', '--satz_limit', required=True,  type=float)
     parser.add_argument('-tf', '--output_txt_file', required=True, type=str)
+    parser.add_argument('--verbose', action='store_true')
     args = parser.parse_args()
 
     # convert from str to float
@@ -77,62 +94,97 @@ if __name__ == '__main__':
     # ----------------------------------- VALIDATE CFC --------------------------------------
     print('\nVALIDATING CFC')
     start = time.now()
-    cfc_results = cfc_val.run_validation(args.matchup_file_calipso, cot_limits, float(args.satz_limit))
+    cfc_results = cfc_val.run_validation(args.matchup_file_calipso,
+                                         cot_limits, 
+                                         float(args.satz_limit))
     if cfc_results is not None:
         results.cfc_results = cfc_results
-        print('Runtime was {}\n'.format(time.now() - start))
+        print(rt_str.format(time.now() - start))
     else:
         print('No CALIOP matchup file. Skipping.')
 
     # ----------------------------------- VALIDATE CPH --------------------------------------
     print('\nVALIDATING CPH')
     start = time.now()
-    cph_results = cph_val.run_validation(args.matchup_file_calipso, cot_limits, float(args.satz_limit))
+    cph_results = cph_val.run_validation(args.matchup_file_calipso, 
+                                         cot_limits, 
+                                         float(args.satz_limit))
     if cph_results is not None:
         results.cph_results = cph_results
-        print('Runtime was {}\n'.format(time.now()-start))
+        print(rt_str.format(time.now()-start))
     else:
         print('No CALIOP matchup file. Skipping.')
 
     # ----------------------------------- VALIDATE CTH --------------------------------------
     print('\nVALIDATING CTH')
     start = time.now()
-    cth_results = cth_val.run_validation(args.matchup_file_calipso, cot_limits, float(args.satz_limit))
+    cth_results = cth_val.run_validation(args.matchup_file_calipso, 
+                                         cot_limits, 
+                                         float(args.satz_limit))
     if cth_results is not None:
         results.cth_results = cth_results
-        print('Runtime was {}\n'.format(time.now()-start))
+        print(rt_str.format(time.now()-start))
+    else:
+        print('No CALIOP matchup file. Skipping.')
+
+    # ----------------------------------- VALIDATE CTP --------------------------------------
+    print('\nVALIDATING CTP')
+    start = time.now()
+    ctp_results = ctp_val.run_validation(args.matchup_file_calipso, 
+                                         cot_limits, 
+                                         float(args.satz_limit))
+    if ctp_results is not None:
+        results.ctp_results = ctp_results
+        print(rt_str.format(time.now()-start))
+    else:
+        print('No CALIOP matchup file. Skipping.')
+
+    # ----------------------------------- VALIDATE CTP --------------------------------------
+    print('\nVALIDATING CTT')
+    start = time.now()
+    ctt_results = ctt_val.run_validation(args.matchup_file_calipso, 
+                                         cot_limits, 
+                                         float(args.satz_limit))
+    if ctt_results is not None:
+        results.ctt_results = ctt_results
+        print(rt_str.format(time.now()-start))
     else:
         print('No CALIOP matchup file. Skipping.')
 
     # ----------------------------------- VALIDATE LWP --------------------------------------
     print('\nVALIDATING LWP')
     start = time.now()
-    lwp_results = lwp_val.run_validation(args.matchup_file_amsr2, args.output_txt_file)
+    lwp_results = lwp_val.run_validation(args.matchup_file_amsr2, 
+                                         args.output_txt_file)
     if lwp_results is not None:
         results.lwp_results = lwp_results
-        print('Runtime was {}\n'.format(time.now()-start))
+        print(rt_str.format(time.now()-start))
     else:
         print('No AMSR matchup file. Skipping.')
 
     # ----------------------------------- VALIDATE IWP --------------------------------------
     print('\nVALIDATING IWP')
     start = time.now()
-    iwp_results = iwp_val.run_validation(args.matchup_file_dardar, args.output_txt_file)
+    iwp_results = iwp_val.run_validation(args.matchup_file_dardar, 
+                                         args.output_txt_file)
     if iwp_results is not None:
         results.iwp_results = iwp_results
-        print('Runtime was {}\n'.format(time.now()-start))
+        print(rt_str.format(time.now()-start))
     else:
         print('No DARDAR matchup file. Skipping.')
 
     # ----------------------------------- VALIDATE CER --------------------------------------
     print('\nVALIDATING CER')
     start = time.now()
-    cer_results = cer_val.run_validation(args.matchup_file_dardar, args.output_txt_file)
+    cer_results = cer_val.run_validation(args.matchup_file_dardar, 
+                                         args.output_txt_file)
     if cer_results is not None:
         results.cer_results = cer_results
-        print('Runtime was {}\n'.format(time.now()-start))
+        print(rt_str.format(time.now()-start))
     else:
         print('No DARDAR matchup file. Skipping.')
+
+    # ----------------------------------------------------------------------------------------
 
     _show_and_save_results(results, args)
 
@@ -163,11 +215,11 @@ if __name__ == '__main__':
         year=year,
         month=month,
         dataset='CCI',
-        dnts=[],#['ALL', 'DAY', 'NIGHT', 'TWILIGHT'],
-        satzs=[],#[None],
-        ifilepath_calipso=None,#args.matchup_file_calipso,
+        dnts=['ALL', 'DAY', 'NIGHT', 'TWILIGHT'],
+        satzs=[None, 70],
+        ifilepath_calipso=args.matchup_file_calipso,
         ifilepath_amsr=args.matchup_file_amsr2,
-        ifilepath_dardar=None,#args.matchup_file_dardar,
+        ifilepath_dardar=args.matchup_file_dardar,
         chunksize=100000,
         plot_area='pc_world',
         FILTER_STRATOSPHERIC_CLOUDS=False

@@ -14,6 +14,8 @@ def run_validation(ifile, ofile):
         # print('Mean CFC: ', np.sum(cma)/cma.shape[0])
         N = X.shape[0]  # lwp_amsr.shape[0]
         bias = np.mean(Y - X)
+        mean_X = np.mean(X)
+        mean_Y = np.mean(Y)
         std = np.sqrt(1 / N * np.sum((Y - X - bias) ** 2))
         rms = np.sqrt(1 / N * np.sum((Y - X) ** 2))
 
@@ -21,9 +23,11 @@ def run_validation(ifile, ofile):
         ann = 'Corr    : {:.2f}\n' + \
               'RMSE    : {:.2f}\n' + \
               'bc-RMSE : {:.2f}\n' + \
+              'Mean AMSR2: {:.2f}\n' + \
+              'Mean Imager: {:.2f}\n' + \
               'Bias    : {:.2f}\n' + \
               'N       : {:d}'
-        ann = ann.format(r, rms, std, bias, N)
+        ann = ann.format(r, rms, std, mean_X, mean_Y, bias, N)
         return ann
     else:
         return None
